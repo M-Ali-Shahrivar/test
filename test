@@ -1,0 +1,117 @@
+from mininet.topo import Topo
+from mininet.net import Mininet
+from mininet.node import RemoteController
+from mininet.cli import CLI
+from mininet.log import setLogLevel
+
+class CustomTopo(Topo):
+    def build(self):
+        # Headquarter (HQ)
+        hq_switch = self.addSwitch('s1')  # Central switch in HQ
+        edge_switch = self.addSwitch('s2')  # Edge switch connecting HQ to branches
+
+        # Adding internal HQ switches for each floor
+        s3 = self.addSwitch('s3')  # Accounting
+        s4 = self.addSwitch('s4')  # HR and Sales
+        s5 = self.addSwitch('s5')  # IT
+        s6 = self.addSwitch('s6')  # Management
+
+        # Connect HQ central switch to internal switches
+        self.addLink(hq_switch, s3)
+        self.addLink(hq_switch, s4)
+        self.addLink(hq_switch, s5)
+        self.addLink(hq_switch, s6)
+
+        # Add hosts for each floor
+        # s3: Accounting (4 hosts)
+        for i in range(4):
+            host_name = f'h0{i + 1}'
+            host = self.addHost(host_name)
+            self.addLink(s3, host)
+
+        # s4: HR (2 hosts) and Sales (2 hosts)
+        for i in range(2):
+            hr_host_name = f'h0{i + 5}'
+            sales_host_name = f'h0{i + 7}'
+            hr_host = self.addHost(hr_host_name)
+            sales_host = self.addHost(sales_host_name)
+            self.addLink(s4, hr_host)
+            self.addLink(s4, sales_host)
+
+        # s5: IT (4 hosts)
+        for i in range(4):
+            host_name = f'h0{i + 9}'
+            host = self.addHost(host_name)
+            self.addLink(s5, host)
+
+        # s6: Management (4 hosts)
+        for i in range(4):
+            host_name = f'h0{i + 13}'
+            host = self.addHost(host_name)
+            self.addLink(s6, host)
+
+        # Connect HQ central switch to the edge switch
+        self.addLink(hq_switch, edge_switch)
+
+        # Branch 1
+        branch1_switch = self.addSwitch('s7')  # Main switch for Branch 1
+        self.addLink(edge_switch, branch1_switch)  # Connect Branch 1 to HQ via edge switch
+
+        # Add two floor switches and hosts for Branch 1
+        s71 = self.addSwitch('s71')  # Sales
+        s72 = self.addSwitch('s72')  # IT, Accounting, Management
+
+        self.addLink(branch1_switch, s71)
+        self.addLink(branch1_switch, s72)
+
+        # Add hosts for s71 (Sales)
+        for i in range(4):
+            host_name = f'h1{i + 1}'
+            host = self.addHost(host_name)
+            self.addLink(s71, host)
+
+        # Add hosts for s72 (IT, Accounting, Management)
+        it_host = self.addHost('h15')
+        accounting_host = self.addHost('h16')
+        management_host = self.addHost('h17')
+        self.addLink(s72, it_host)
+        self.addLink(s72, accounting_host)
+        self.addLink(s72, management_host)
+
+        # Branch 2
+        branch2_switch = self.addSwitch('s8')  # Main switch for Branch 2
+        self.addLink(edge_switch, branch2_switch)  # Connect Branch 2 to HQ via edge switch
+
+        # Add two floor switches and hosts for Branch 2
+        s81 = self.addSwitch('s81')  # Sales
+        s82 = self.addSwitch('s82')  # IT, Accounting, Management
+
+        self.addLink(branch2_switch, s81)
+        self.addLink(branch2_switch, s82)
+
+        # Add hosts for s81 (Sales)
+        for i in range(4):
+            host_name = f'h2{i + 1}'
+            host = self.addHost(host_name)
+            self.addLink(s81, host)
+
+        # Add hosts for s82 (IT, Accounting, Management)
+        it_host = self.addHost('h25')
+        accounting_host = self.addHost('h26')
+        management_host = self.addHost('h27')
+        self.addLink(s82, it_host)
+        self.addLink(s82, accounting_host)
+        self.addLink(s82, management_host)
+
+def run():
+    topo = CustomTopo()
+    net = Mininet(topo=topo, controller=None)  # No default controller
+    net.addController('c0', controller=RemoteController, ip='127.0.0.1', port=6653)  # Connect to OpenDaylight
+    net.start()
+    print("Network is ready. Use 'pingall' to test connectivity.")
+    CLI(net)
+    net.stop()
+
+if __name__ == '__main__':
+    setLogLevel('info')
+    run()
