@@ -1,0 +1,60 @@
+import pandas as pd
+import time
+import requests
+from mininet.net import Mininet
+from mininet.link import TCLink
+
+def get_flow_data(controller_ip='127.0.0.1', controller_port=8181):
+    url = f'http://{controller_ip}:{controller_port}/restconf/operational/opendaylight-inventory:nodes'
+    auth = ('admin', 'admin')
+    response = requests.get(url, auth=auth, headers={'Accept': 'application/json'})
+    if response.status_code == 200:
+        data = response.json()
+        flows = []
+        for node in data.get('nodes', {}).get('node', []):
+            node_id = node.get('id', '')
+            for table in node.get('flow-node-inventory:table', []):
+                for flow in table.get('flow', []):
+                    src = flow.get('match', {}).get('ipv4-source')
+                    dest = flow.get('match', {}).get('ipv4-destination')
+                    bandwidth = flow.get('instructions', {}).get('instruction', [{}])[0].get('apply-actions', {}).get('action', [{}])[0].get('order', 0)
+                    if src and dest:
+                        flows.append((src, dest, bandwidth))
+        return flows
+    return []
+
+def get_hop_count(net, src, dest):
+    try:
+        src_host = net.getNodeByName(src)
+        dest_host = net.getNodeByName(dest)
+        return len(net.pingFull([src_host, dest_host]))
+    except KeyError:
+        return -1
+
+def collect_network_data(net, duration=7):
+    data = []
+    for _ in range(duration * 24 * 60):
+        flows = get_flow_data()
+        for src, dest, bandwidth in flows:
+            hop_count = get_hop_count(net, src, dest)
+            src_host = net.get(src) if src in net else None
+            dest_host = net.get(dest) if dest in net else None
+            if src_host and dest_host:
+                link = net.linksBetween(src_host, dest_host)
+                if link:
+                    delay = link[0].intf1.params.get('delay', '0ms')
+                    loss = link[0].intf1.params.get('loss', 0)
+                    jitter = link[0].intf1.params.get('jitter', '0ms')
+                    congestion = min(100, int(loss) * 2)
+                    latency_variation = float(delay.strip('ms')) / 2
+                    data.append([src, dest, bandwidth, delay, loss, jitter, congestion, hop_count, latency_variation])
+        time.sleep(60)
+    df = pd.DataFrame(data, columns=["src", "dest", "bandwidth", "delay", "loss", "jitter", "congestion", "hop_count", "latency_variation"])
+    df.to_csv("network_data.csv", index=False)
+
+if __name__ == "__main__":
+    net = Mininet(link=TCLink)
+    net.start()
+    collect_network_data(net)
+    net.stop()
+
