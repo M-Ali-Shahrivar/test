@@ -1,0 +1,81 @@
+import requests
+import json
+import subprocess
+import networkx as nx
+
+def get_topology():
+    url = "http://localhost:8181/restconf/operational/network-topology:network-topology"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": "Basic YWRtaW46YWRtaW4="  # admin:admin base64
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+def get_hosts():
+    url = "http://localhost:8181/restconf/operational/opendaylight-inventory:nodes"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": "Basic YWRtaW46YWRtaW4="
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
+def get_link_params(src, dest):
+    cmd = f"sudo tc qdisc show dev {src}-{dest}"
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return result.stdout
+
+def parse_link_params(output):
+    params = {"bandwidth": "0", "delay": "0", "loss": "0", "jitter": "0"}
+    for line in output.split("\n"):
+        if "rate" in line:
+            params["bandwidth"] = line.split()[1]
+        if "delay" in line:
+            params["delay"] = line.split()[1]
+        if "loss" in line:
+            params["loss"] = line.split()[1]
+        if "jitter" in line:
+            params["jitter"] = line.split()[1]
+    return params
+
+def build_graph(topology):
+    G = nx.Graph()
+    for topo in topology.get("network-topology", {}).get("topology", []):
+        if "link" in topo:
+            for link in topo["link"]:
+                src = link["source"]["source-node"]
+                dest = link["destination"]["dest-node"]
+                params = get_link_params(src, dest)
+                parsed_params = parse_link_params(params)
+                G.add_edge(src, dest, **parsed_params)
+    return G
+
+def compute_metrics(G):
+    metrics = {}
+    for src in G.nodes:
+        for dest in G.nodes:
+            if src != dest:
+                path = nx.shortest_path(G, source=src, target=dest)
+                hop_count = len(path) - 1
+                total_latency = sum(float(G[u][v].get("delay", "0") or 0) for u, v in zip(path[:-1], path[1:]))
+                total_bandwidth = min(float(G[u][v].get("bandwidth", "inf") or float('inf')) for u, v in zip(path[:-1], path[1:]))
+                metrics[f"{src}->{dest}"] = {"hop_count": hop_count, "latency": total_latency, "bandwidth": total_bandwidth}
+    return metrics
+
+def main():
+    topology = get_topology()
+    if not topology:
+        print("Failed to get topology")
+        return
+    G = build_graph(topology)
+    metrics = compute_metrics(G)
+    print(json.dumps(metrics, indent=4))
+
+if __name__ == "__main__":
+    main()
+
